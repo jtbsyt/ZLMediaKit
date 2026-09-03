@@ -57,10 +57,15 @@ extern const std::string kBroadcastRecordTs;
 extern const std::string kBroadcastHttpRequest;
 #define BroadcastHttpRequestArgs const Parser &parser, const HttpSession::HttpResponseInvoker &invoker, bool &consumed, toolkit::SockInfo &sender
 
+// 收到http PUT/POST请求body前的广播，监听者可以设置body以接管请求体
+// Broadcast before receiving http PUT/POST request body, listener can set body to take over the request body
+extern const std::string kBroadcastBeforeHttpRequest;
+#define BroadcastBeforeHttpRequestArgs const Parser &parser, HttpBody::Ptr &body, HttpSession &sender
+
 // 在http文件服务器中,收到http访问文件或目录的广播,通过该事件控制访问http目录的权限  [AUTO-TRANSLATED:2de426b4]
 // In the http file server, broadcast for receiving http access to files or directories. Control access permissions to the http directory through this event.
 extern const std::string kBroadcastHttpAccess;
-#define BroadcastHttpAccessArgs const Parser &parser, const std::string &path, const bool &is_dir, const HttpSession::HttpAccessPathInvoker &invoker, toolkit::SockInfo &sender
+#define BroadcastHttpAccessArgs const Parser &parser, const std::string &path, const std::string &file_path, const bool &is_dir, const HttpSession::HttpAccessPathInvoker &invoker, toolkit::SockInfo &sender
 
 // 在http文件服务器中,收到http访问文件或目录前的广播,通过该事件可以控制http url到文件路径的映射  [AUTO-TRANSLATED:0294d0c5]
 // In the http file server, broadcast before receiving http access to files or directories. Control the mapping from http url to file path through this event.
@@ -126,7 +131,7 @@ extern const std::string kBroadcastStreamNoneReader;
 // rtp推流被动停止时触发  [AUTO-TRANSLATED:43881965]
 // Triggered when rtp push stream is passively stopped.
 extern const std::string kBroadcastSendRtpStopped;
-#define BroadcastSendRtpStoppedArgs MultiMediaSourceMuxer &sender, const std::string &ssrc, const SockException &ex
+#define BroadcastSendRtpStoppedArgs MultiMediaSourceMuxer &sender, const std::string &ssrc, const toolkit::SockException &ex
 
 // 更新配置文件事件广播,执行loadIniConfig函数加载配置文件成功后会触发该广播  [AUTO-TRANSLATED:ad4e167d]
 // Update configuration file event broadcast. This broadcast will be triggered after the loadIniConfig function loads the configuration file successfully.
@@ -161,6 +166,12 @@ extern const std::string kBroadcastRtcSctpReceived;
 extern const std::string kBroadcastPlayerCountChanged;
 #define BroadcastPlayerCountChangedArgs const MediaTuple& args, const int& count
 
+extern const std::string kBroadcastPlayerProxyFailed;
+#define BroadcastPlayerProxyFailedArgs const PlayerProxy& sender, const toolkit::SockException &ex
+
+extern const std::string kBroadcastCreateMuxer;
+#define BroadcastCreateMuxerArgs MediaSinkInterface::Ptr &delegate, const MultiMediaSourceMuxer &sender
+
 #define ReloadConfigTag ((void *)(0xFF))
 #define RELOAD_KEY(arg, key)                                                                                           \
     do {                                                                                                               \
@@ -183,19 +194,21 @@ extern const std::string kBroadcastPlayerCountChanged;
     } while (0)
 
 #define GET_CONFIG(type, arg, key)                                                                                     \
-    static type arg = ::toolkit::mINI::Instance()[key];                                                                \
-    LISTEN_RELOAD_KEY(arg, key, { RELOAD_KEY(arg, key); });
+    static type arg##_storage_ = ::toolkit::mINI::Instance()[key];                                                     \
+    static const type &arg = arg##_storage_;                                                                           \
+    LISTEN_RELOAD_KEY(arg##_storage_, key, { RELOAD_KEY(arg##_storage_, key); });
 
 #define GET_CONFIG_FUNC(type, arg, key, ...)                                                                           \
-    static type arg;                                                                                                   \
+    static type arg##_storage_;                                                                                        \
+    static const type &arg = arg##_storage_;                                                                           \
     do {                                                                                                               \
         static ::toolkit::onceToken s_token_set([]() {                                                                 \
             static auto lam = __VA_ARGS__;                                                                             \
             static auto arg##_str = ::toolkit::mINI::Instance()[key];                                                  \
-            arg = lam(arg##_str);                                                                                      \
-            LISTEN_RELOAD_KEY(arg, key, {                                                                              \
+            arg##_storage_ = lam(arg##_str);                                                                           \
+            LISTEN_RELOAD_KEY(arg##_str, key, {                                                                        \
                 RELOAD_KEY(arg##_str, key);                                                                            \
-                arg = lam(arg##_str);                                                                                  \
+                arg##_storage_ = lam(arg##_str);                                                                       \
             });                                                                                                        \
         });                                                                                                            \
     } while (0)
@@ -345,6 +358,9 @@ extern const std::string kSendBufSize;
 // http 最大请求字节数  [AUTO-TRANSLATED:8239eb9c]
 // HTTP maximum request byte size
 extern const std::string kMaxReqSize;
+// 自定义HttpBody流式接收请求体的最大字节数
+// Maximum request body size streamed into a custom HttpBody
+extern const std::string kMaxUploadSize;
 // http keep-alive秒数  [AUTO-TRANSLATED:d4930c66]
 // HTTP keep-alive seconds
 extern const std::string kKeepAliveSecond;
@@ -525,6 +541,9 @@ extern const std::string kDeleteDelaySec;
 // 如果设置为1，则第一个切片长度强制设置为1个GOP  [AUTO-TRANSLATED:fbbb651d]
 // If set to 1, the length of the first slice is forced to be 1 GOP
 extern const std::string kFastRegister;
+// fmp4 HLS切片文件的扩展名(例如 .mp4 或 .m4s)；mpegts切片始终为.ts
+// File extension for fMP4 HLS segment files (e.g. .mp4 or .m4s); mpegts segments are always .ts
+extern const std::string kFmp4SegExt;
 } // namespace Hls
 
 // //////////Rtp代理相关配置///////////  [AUTO-TRANSLATED:7b285587]
@@ -632,6 +651,8 @@ extern const std::string kLatency;
 extern const std::string kPassPhrase;
 // 自定义rtsp/http头
 extern const std::string kCustomHeader;
+// 指定采用什么播放协议
+extern const std::string kSchema;
 } // namespace Client
 } // namespace mediakit
 
